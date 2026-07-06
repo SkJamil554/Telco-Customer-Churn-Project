@@ -2,7 +2,7 @@ name: Build and Push to Docker Hub
 
 on:
   push:
-    branches: [main]  # Only trigger on main branch pushes
+    branches: [main] # Only trigger on main branch pushes
 
 jobs:
   build-and-push:
@@ -22,9 +22,9 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
-          file: ./dockerfile  # change if your Dockerfile has a different name or path
+          file: ./dockerfile # change if your Dockerfile has a different name or path
           push: true
-          tags: skjamil554/telco-fastapi:latest
+          tags: skjamil554/telco-churn-app:latest
