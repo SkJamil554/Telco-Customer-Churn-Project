@@ -1,63 +1,130 @@
-## Telco Churn – End-to-End ML Project
-### Purpose
+# Telco Customer Churn — Telco-Customer-Churn-Project
 
-Build and ship a full machine-learning solution for predicting customer churn in a telecom setting—from data prep and modeling to an API + web UI deployed on AWS.
+A reproducible MLOps pipeline and model serving application for predicting customer churn in a telecommunications dataset. This repository includes training pipelines, data validation, feature engineering, model training with XGBoost, MLflow experiment tracking, and a FastAPI + Gradio serving layer.
 
-### Problem solved & benefits
+Table of contents
+- Overview
+- Key features
+- Architecture & components
+- Getting started (local)
+- Training pipeline
+- Serving (API & UI)
+- MLflow & artifacts
+- Testing
+- Docker
+- CI/CD
+- Development notes
+- Contributing & license
+- Contact
 
-- Faster decisions: Predicts which customers are likely to churn so teams can act before they leave.
-- Operationalized ML: Model is accessible via a REST API and a simple UI; anyone can test it without notebooks.
-- Repeatable delivery: CI/CD + containers mean every change can be rebuilt, tested, and redeployed in a consistent way.
-- Traceable experiments: MLflow tracks runs, metrics, and artifacts for reproducibility and auditing.
+Overview
+This project implements a full training and serving lifecycle for a churn prediction model. Training and serving use identical feature transformations and artifacts are tracked with MLflow to ensure reproducibility.
 
-### What I built
+Key features
+- Data validation (Great Expectations)
+- Deterministic feature engineering (binary mappings, one-hot with drop_first)
+- XGBoost model with tuned hyperparameters
+- MLflow experiment tracking (models, feature columns, preprocessing artifacts)
+- FastAPI REST endpoint + Gradio UI for inference
+- Containerized for production deployment
 
-- Data & Modeling: Feature engineering + XGBoost classifier; experiments logged to MLflow.
-- Model tracking: Runs, metrics, and the serialized model logged under a named MLflow experiment.
-- Inference service: FastAPI app exposing /predict (POST) and a root health check /.
-- Web UI: Gradio interface mounted at /ui for quick, shareable manual testing.
-- Containerization: Docker image with uvicorn entrypoint (src.app.main:app) listening on port 8000.
-- CI/CD: GitHub Actions builds the image and pushes to Docker Hub; optionally triggers an ECS service update.
-- Orchestration: AWS ECS Fargate runs the container (serverless).
-- Networking: Application Load Balancer (ALB) on HTTP:80 forwarding to a Target Group (IP targets on HTTP:8000).
-- Security: Security groups scoped to allow ALB inbound 80 from the internet, and task inbound 8000 from the ALB SG.
-- Observability: CloudWatch Logs for container stdout/stderr and ECS service events.
+Architecture & components
+- Training pipeline: scripts/run_pipeline.py
+  - Steps: Data loading → Data validation → Preprocessing → Feature engineering → XGBoost training → MLflow logging
+- Serving pipeline:
+  - FastAPI app: `src/app/main.py` (GET /, POST /predict)
+  - Gradio UI mounted at `/ui`
+  - Inference utilities: `src/serving/inference.py`
+- Artifacts & storage:
+  - MLflow tracking URI: file-based at `mlruns/`
+  - Logged artifacts: `model/`, `feature_columns.txt` (or JSON), `preprocessing.pkl`
+  - Container runtime path for model: `/app/model/`
 
-### Deployment flow (high-level)
+Getting started (local)
+Prerequisites
+- Python 3.11 (project uses 3.11 in Dockerfile)
+- pip
+- git
+- (Optional) Docker for containerized runs
 
-- Push to main → GitHub Actions builds the Docker image and pushes it to Docker Hub.
-- ECS service is updated (manually or via the workflow) to force a new deployment.
-- ALB health checks hit / on port 8000; once healthy, traffic is routed to the new task.
-- Users call POST /predict or open the Gradio UI at /ui via the ALB DNS.
+Install
+1. Clone the repo:
+   git clone <repository-url>
+2. Create a virtual environment and install:
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
 
-### Roadblocks & how we solved them
+Training pipeline
+- Run end-to-end training:
+  python scripts/run_pipeline.py --input data/raw/Telco-Customer-Churn.csv --target Churn
+- Prepare processed data only:
+  python scripts/prepare_processed_data.py
 
-Unhealthy targets behind ALB
+Model config highlights
+- XGBoost: n_estimators=301, learning_rate=0.034, max_depth=7
+- scale_pos_weight is computed dynamically to handle class imbalance
+- Default classification threshold: 0.35 (configurable)
 
-- Cause: App didn’t respond at the health-check path; listener/target port mismatches.
-- Fixes: Added GET / health endpoint; confirmed ALB listener on 80 forwards to TG on 8000; TG health check path set to /.
+Serving (FastAPI + Gradio)
+Run locally:
+- Start the FastAPI app:
+  python -m uvicorn src.app.main:app --host 0.0.0.0 --port 8000
+  # Or alternate entry point:
+  python -m uvicorn src.app.app:app --host 0.0.0.0 --port 8000
+- Endpoints:
+  - GET / → health check ({"status":"ok"})
+  - POST /predict → accepts `CustomerData` Pydantic schema with expected attributes (18 features)
+  - /ui → Gradio web UI for interactive prediction
 
-Module import error in container (ModuleNotFoundError: serving)
+Serving details
+- Model is loaded via MLflow pyfunc from `/app/model` in container environment.
+- Serving uses a fixed BINARY_MAP for binary features and pd.get_dummies(..., drop_first=True) to match training.
+- Features are aligned using `feature_columns.txt` produced at training time; serving enforces the same feature order.
 
-- Cause: Python path in the image didn’t include src/.
-- Fixes: Set PYTHONPATH=/app/src in the Dockerfile; corrected uvicorn app path to src.app.main:app.
+MLflow & artifacts
+- Experiment name: "Telco Churn"
+- mlruns directory: `{project_root}/mlruns` (file-based tracking)
+- Logged metrics: precision, recall, f1, roc_auc, train_time, pred_time, data_quality_pass
+- Artifacts saved per run: `model/`, `feature_columns.txt`, `preprocessing.pkl`
 
-ALB DNS timing out
+Testing
+- Test data processing and feature engineering:
+  python scripts/test_pipeline_phase1_data_features.py
+- Test model training and evaluation:
+  python scripts/test_pipeline_phase2_modeling.py
+- Test FastAPI endpoints:
+  python scripts/test_fastapi.py
 
-- Cause: Security group rules not aligned with traffic flow.
-- Fixes: ALB SG allows inbound 80 from 0.0.0.0/0; task SG allows inbound 8000 from the ALB SG; outbound open.
+Docker
+Build image:
+  docker build -t telco-churn-app .
+Run container:
+  docker run -p 8000:8000 telco-churn-app
 
-ECS redeploy not picking up the new image
+Notes:
+- Dockerfile base image: python:3.11-slim
+- The Docker build copies a specific MLflow run to `/app/model` for serving
+- Ensure `PYTHONPATH=/app/src` is set for proper imports
 
-- Cause: Service still running previous task definition.
-- Fixes: Force new deployment (CLI or console) after pushing the new image; optional step added to CI.
+CI/CD
+- Workflow: push to main triggers CI that builds Docker image and pushes to Docker Hub (example: anasriad8/telco-fastapi:latest)
+- Requires secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
+- Deployment: manual ECS Fargate service update behind an ALB (per project notes)
 
-Gradio UI error (“No runs found in experiment”)
+Development notes
+- No formal unit test suite; rely on provided test scripts
+- To view MLflow UI locally:
+  mlflow ui --backend-store-uri file:./mlruns
+- Keep preprocessing and feature engineering code identical between training and serving to avoid inference-time drift
 
-- Cause: Inference/UI expected an MLflow-logged model but couldn’t resolve a run.
-- Fixes: Standardized MLflow experiment name and model logging in training; inference loads the logged model consistently (and a local path for dev).
+Contributing
+- Raise issues for bugs or feature requests.
+- Follow the repository's code style and test changes using the provided test scripts.
 
-Local testing vs. prod paths
+License
+- Add your chosen license here (e.g., MIT, Apache-2.0).
 
-- Cause: MLflow artifact URIs differ locally vs. in container.
-- Fixes: For local dev, load via direct ./mlruns/.../artifacts/model; in prod, container loads the packaged model path used at build time.
+Contact
+- Maintainer: <your name> — <email@example.com>
+- GitHub: https://github.com/SkJamil554/Telco-Customer-Churn-Project
