@@ -15,6 +15,7 @@ Table of contents
 - Docker
 - CI/CD notes
 - Contributing & contact
+- Examples: prediction payloads & curl
 
 ## Overview
 This project implements a full training and serving lifecycle for a churn prediction model using the Telco customer dataset. Training and serving use the same preprocessing and feature engineering to avoid inference drift; models and preprocessing artifacts are tracked with MLflow so runs are reproducible and portable into the serving container.
@@ -125,6 +126,99 @@ Notes: Dockerfile uses `python:3.11-slim` and sets `PYTHONPATH=/app/src` for imp
 ## CI/CD notes
 - The repository includes a GitHub workflow that builds the Docker image on push to main and can push to Docker Hub (requires DOCKERHUB_USERNAME, DOCKERHUB_TOKEN secrets).
 - Deployment notes reference a manual ECS Fargate update behind an ALB.
+
+## Examples: prediction payloads & curl
+Below are example payloads you can send to the running FastAPI server at `POST /predict`, plus curl and Python requests examples.
+
+Example JSON payload (high churn risk):
+```json
+{
+  "gender": "Female",
+  "SeniorCitizen": 0,
+  "Partner": "No",
+  "Dependents": "No",
+  "PhoneService": "Yes",
+  "MultipleLines": "No",
+  "InternetService": "Fiber optic",
+  "OnlineSecurity": "No",
+  "OnlineBackup": "No",
+  "DeviceProtection": "No",
+  "TechSupport": "No",
+  "StreamingTV": "Yes",
+  "StreamingMovies": "Yes",
+  "Contract": "Month-to-month",
+  "PaperlessBilling": "Yes",
+  "PaymentMethod": "Electronic check",
+  "tenure": 1,
+  "MonthlyCharges": 85.0,
+  "TotalCharges": 85.0
+}
+```
+
+Curl example
+```bash
+curl -X POST "http://localhost:8000/predict" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gender": "Female",
+    "SeniorCitizen": 0,
+    "Partner": "No",
+    "Dependents": "No",
+    "PhoneService": "Yes",
+    "MultipleLines": "No",
+    "InternetService": "Fiber optic",
+    "OnlineSecurity": "No",
+    "OnlineBackup": "No",
+    "DeviceProtection": "No",
+    "TechSupport": "No",
+    "StreamingTV": "Yes",
+    "StreamingMovies": "Yes",
+    "Contract": "Month-to-month",
+    "PaperlessBilling": "Yes",
+    "PaymentMethod": "Electronic check",
+    "tenure": 1,
+    "MonthlyCharges": 85.0,
+    "TotalCharges": 85.0
+  }'
+```
+Expected response (example):
+```json
+{ "success": true, "prediction": "Likely to churn" }
+```
+
+Python requests example
+```python
+import requests
+
+url = "http://localhost:8000/predict"
+payload = {
+  "gender": "Female",
+  "SeniorCitizen": 0,
+  "Partner": "No",
+  "Dependents": "No",
+  "PhoneService": "Yes",
+  "MultipleLines": "No",
+  "InternetService": "Fiber optic",
+  "OnlineSecurity": "No",
+  "OnlineBackup": "No",
+  "DeviceProtection": "No",
+  "TechSupport": "No",
+  "StreamingTV": "Yes",
+  "StreamingMovies": "Yes",
+  "Contract": "Month-to-month",
+  "PaperlessBilling": "Yes",
+  "PaymentMethod": "Electronic check",
+  "tenure": 1,
+  "MonthlyCharges": 85.0,
+  "TotalCharges": 85.0
+}
+
+resp = requests.post(url, json=payload)
+print(resp.json())
+```
+
+Gradio UI
+- Interactive UI is available at `http://localhost:8000/ui` when the FastAPI app is running. Use the example forms to submit inputs without crafting JSON.
 
 ## Contributing & contact
 - Raise issues for bugs or feature requests, open PRs for fixes/improvements.
